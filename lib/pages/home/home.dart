@@ -1,53 +1,10 @@
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // 需要重新添加这个导入
-import 'dart:ui'; // 添加对dart:ui的导入以使用ImageFilter
-import 'package:flutter_module/pages/home/components/home-card-hot.dart';
-import 'package:flutter_module/pages/home/components/hot-video-popup.dart';
-import 'package:provider/provider.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:fluttertoast/fluttertoast.dart'; // 添加fluttertoast导入
-import 'provider/counterStore.p.dart';
-import './components/zone-action.dart';
-import './components/tabs-search.dart';
-import './components/home-card-goods.dart';
-import '../../../services/common_service.dart'; // 接口
-import '../../../services/vip.dart'; // 接口
-import './components/home-card-video.dart';
-import '../../../components/page_loding/page_loding.dart';
-import 'package:flutter/rendering.dart';
-import '../../../config/app_env.dart';
-import '../../../utils/storage_util.dart'; // 添加StorageUtil导入
-import 'package:flutter_module/components/cx-components-ui/cx-vip-more/cx-vip-more.dart';
-import '../../utils/tool/cx_tools.dart';
-import 'dart:io' show Platform;
-import 'package:flutter_module/utils/track_event.dart';
-
-// 创建一个用于悬浮标签的SliverPersistentHeaderDelegate
-class StickyTabsDelegate extends SliverPersistentHeaderDelegate {
-  final TabsSearch tabsSearch;
-  final double height;
-
-  StickyTabsDelegate({required this.tabsSearch, required this.height});
-
-  @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    return Container(
-      color: Colors.white,
-      child: tabsSearch,
-    );
-  }
-
-  @override
-  double get maxExtent => height;
-
-  @override
-  double get minExtent => height;
-
-  @override
-  bool shouldRebuild(covariant SliverPersistentHeaderDelegate oldDelegate) {
-    return true;
-  }
-}
+import 'package:permission_handler/permission_handler.dart';
+import '../../routes/route_name.dart';
+import '../../utils/permission_helper.dart';
+import '../../utils/debug_helper.dart';
 
 class Home extends StatefulWidget {
   const Home({Key? key, this.params}) : super(key: key);
@@ -57,860 +14,605 @@ class Home extends StatefulWidget {
   State<Home> createState() => HomeState();
 }
 
-class HomeState extends State<Home> with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
-  @override
-  bool get wantKeepAlive => true;
-  // late UserProvider _userProvider; // 添加UserProvider
-  FocusNode blankNode = FocusNode(); // 响应空白处的焦点的Node
-  Map _userVip = {};
-
-  // 添加分页相关状态
-  int _currentPage = 1;
-  bool _hasMore = true;
-  bool _isLoading = false;
-  List<dynamic> _goodsList = [];
-  List<dynamic> _videoList = [];
-  List<dynamic> _hotList = [];
-  ScrollController _scrollController = ScrollController();
-  Map<String, dynamic> _searchParams = {};
-  final ValueNotifier<int> currentTabs = ValueNotifier<int>(0);
-  final GlobalKey<HotVideoPopupState> _childKey = GlobalKey();
-  // 添加文本控制器
-  TextEditingController _searchController = TextEditingController();
-  bool isShowLogin = false;
-  bool isShowNoVip = false;
-  final _debouncer = CxDebouncer(milliseconds: 1000); // 2秒防抖
+class HomeState extends State<Home> {
+  
+  // 权限状态
+  bool _hasCameraPermission = false;
+  bool _hasStoragePermission = false;
+  bool _isCheckingPermissions = true;
 
   @override
   void initState() {
     super.initState();
-    if (Platform.isIOS) {
-      // 注册生命周期观察者
-      WidgetsBinding.instance.addObserver(this);
-    }
-
-    _scrollController.addListener(_scrollListener);
-
-    _onGetclipboardData();
-    isGoPage();
+    _checkAllPermissions();
   }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // 初始化 UserProvider 并添加监听
-    // _userProvider = Provider.of<UserProvider>(context, listen: false);
-    // _userProvider.addListener(_onUserChanged);
-    getResetVip();
-  }
-
-  void _onUserChanged() async {
-    _debouncer.run(() {
-      print('收到登录的变化开始打印------------');
-      // if (_userProvider.isLoggedIn) {
-      //   isShowLogin = false;
-      // }
-      _refresh(); // 用户信息变化时触发刷新
-    });
-  }
-
-  void getResetVip() {
-    // if (_userProvider.isLoggedIn) {
-    //   _getVipInfo();
-    // }
-  }
-
-  @override
-  void dispose() {
-    // 移除生命周期观察者
-    WidgetsBinding.instance.removeObserver(this);
-    _debouncer.dispose();
-    _scrollController.dispose();
-    _searchController.dispose(); // 释放控制器资源
-    // _userProvider.removeListener(_onUserChanged); // 移除监听器
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) async {
-    super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.resumed) {
-      // 从后台切回前台时触发
-      final currentRoute = getCurrentTopRoute(context);
-      print(currentRoute);
-      isGoPage();
-      if (currentRoute == '/h5_route_page') {
-        return;
-      }
-      _onGetclipboardData(); // 重新检查剪贴板
-    } else if (state == AppLifecycleState.paused) {
-      // 应用进入后台时触发
-    }
-  }
-
-  String? getCurrentTopRoute(BuildContext context) {
-    NavigatorState? navigator = Navigator.of(context);
-    Route? currentRoute = navigator.widget.onGenerateRoute!(RouteSettings(name: '/'));
-
-    // 或者遍历路由栈（适用于 Flutter 2.0+）
-    Route? topRoute;
-    navigator.popUntil((route) {
-      topRoute = route;
-      return true; // 返回 true 停止遍历
-    });
-
-    return topRoute?.settings.name;
-  }
-
-  void _scrollListener() {
-    if (_scrollController.position.pixels >=
-        _scrollController.position.maxScrollExtent) {
-      if (!_isLoading && _hasMore) {
-        _loadMore();
-      }
-    }
-  }
-
-  void isGoPage() async {
-    // if (Platform.isIOS) {
-    //   final res = await NativeBridge.isNavigateToFlutter();
-    //   if (res.isNotEmpty && res != '') {
-    //     if (!_userProvider.isLoggedIn) {
-    //       NativeBridge.openUserLogin();
-    //       return;
-    //     }
-    //     Navigator.of(context).pushNamed('/h5_route_page', arguments: {
-    //       'url': res,
-    //     });
-    //   }
-    // }
-  }
-
-  Future<void> _onGetApiList() async {
-    if (currentTabs.value == 0) {
-      await _getDyRank();
-    } else if (currentTabs.value == 1) {
-      await getVideoApi();
-    } else if (currentTabs.value == 2) {
-      await getHotApi();
-    }
-  }
-
-  Future<void> _loadMore() async {
-    if (_isLoading || !_hasMore) return;
-    await _onGetApiList();
-  }
-
-  Future<void> _refresh() async {
-    // if (_userProvider.isLoggedIn) {
-    //   _getVipInfo();
-    // }
-    setState(() {
-      isShowLogin = false;
-      isShowNoVip = false;
-      _isLoading = false;
-      _currentPage = 1;
-      _hasMore = true;
-      _goodsList = [];
-      _videoList = [];
-      _hotList = [];
-    });
-    await _onGetApiList();
-  }
-
-  Future<void> _getDyRank() async {
-    if (_isLoading) return;
-
-    setState(() {
-      _isLoading = true;
-    });
-
+  
+  /// 检查所有权限状态
+  Future<void> _checkAllPermissions() async {
     try {
-      final res = await productRank({
-        'need_recommend_reason': 1,
-        'rank_type': 9,
-        'need_material': 1,
-        'page': _currentPage,
-        'size': 10,
-        ..._searchParams,
-      });
-      final Map resMap = res is Map ? res : {};
-      final dynamic list = res is Map ? res['list'] : null;
-      print('listlistlistlistlistlistlistlist');
-      print(list);
-      // if (!_userProvider.isLoggedIn && _currentPage == 2) {
-      //   setState(() {
-      //     isShowLogin = true;
-      //     _isLoading = false;
-      //     _hasMore = false;
-      //   });
-      //   return;
-      // } else if (_userVip.containsKey('free') && _userVip['free'] && _currentPage != 1) {
-      //   // 没有会员
-      //   setState(() {
-      //     isShowNoVip = true;
-      //     _isLoading = false;
-      //     _hasMore = false;
-      //   });
-      //   return;
-      // }
-      if (list != null) {
-        setState(() {
-          if (_currentPage == 1) {
-            _goodsList = list;
-          } else {
-            _goodsList.addAll(list);
-          }
-          _hasMore = list.length >= 10;
-          _currentPage++;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      print('Error loading data: $e');
-    } finally {
       setState(() {
-        _isLoading = false;
+        _isCheckingPermissions = true;
+      });
+      
+      bool cameraPermission = await PermissionHelper.hasCameraPermission();
+      bool storagePermission = await PermissionHelper.hasStoragePermission();
+      
+      setState(() {
+        _hasCameraPermission = cameraPermission;
+        _hasStoragePermission = storagePermission;
+        _isCheckingPermissions = false;
+      });
+      
+      print('权限检查完成 - 相机权限: $cameraPermission, 存储权限: $storagePermission');
+    } catch (e) {
+      print('检查权限时发生错误: $e');
+      setState(() {
+        _isCheckingPermissions = false;
       });
     }
   }
-
-  Future<void> getVideoApi() async {
-    if (_isLoading) return;
-
-    setState(() {
-      _isLoading = true;
-    });
-
+  
+  /// 请求相机权限
+  Future<bool> _requestCameraPermission() async {
     try {
-      final res = await getMaterialList({
-        'search_str': '',
-        'sort': 'product_volume',
-        'order_by': 'desc',
-        'time': '7d',
-        'page': _currentPage,
-        'size': 10,
-        ..._searchParams,
-      });
-      final dynamic list = res is Map ? res['data']['list'] : null;
-      print(list);
-      // if (!_userProvider.isLoggedIn && _currentPage == 2) {
-      //   setState(() {
-      //     isShowNoVip = true;
-      //     _isLoading = false;
-      //     _hasMore = false;
-      //   });
-      //   return;
-      // }
-      // if (_userVip.containsKey('free') && _userVip['free'] && _currentPage != 1) {
-      // // 没有会员
-      //   setState(() {
-      //     isShowNoVip = true;
-      //     _isLoading = false;
-      //     _hasMore = false;
-      //   });
-      //   return;
-      // }
-      if (list != null) {
-        setState(() {
-          if (_currentPage == 1) {
-            _videoList = list;
-          } else {
-            _videoList.addAll(list);
+      print('开始请求拍照权限...');
+      
+      // 首先检查相机权限状态
+      bool isPermanentlyDenied = await PermissionHelper.isCameraPermissionPermanentlyDenied();
+      
+      if (isPermanentlyDenied) {
+        print('相机权限已被永久拒绝，显示设置引导对话框');
+        // 权限被永久拒绝，显示专门的设置引导对话框
+        return await _showPermanentlyDeniedDialog();
+      }
+      
+      // 使用权限管理工具类请求权限
+      bool hasPermission = await PermissionHelper.requestCameraAndStoragePermissions();
+
+      if (!hasPermission) {
+        // 检查是否是刚刚被永久拒绝的
+        bool isNowPermanentlyDenied = await PermissionHelper.isCameraPermissionPermanentlyDenied();
+
+        if (isNowPermanentlyDenied) {
+          print('权限刚刚被永久拒绝，显示设置引导对话框');
+          return await _showPermanentlyDeniedDialog();
+        } else {
+          // 普通拒绝，显示权限说明对话框
+          bool userWantsToOpenSettings = await _showPermissionExplanationDialog();
+
+          if (userWantsToOpenSettings) {
+            // 用户选择去设置，再次检查权限
+            await Future.delayed(Duration(seconds: 1)); // 给用户一些时间去设置
+            return await PermissionHelper.hasCameraPermission();
           }
-          _hasMore = list.length >= 10;
-          _currentPage++;
-          _isLoading = false;
-        });
+        }
+
+        return false;
       }
+      
+      return true;
     } catch (e) {
-      print('Error loading data: $e');
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  Future<void> getHotApi() async {
-    if (_isLoading) return;
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final res = await getHotApiList({
-        'category_id': '-1',
-        'date_type': '1',
-        'rank_type': '1',
-        'type': '3',
-        'page': _currentPage.toString(),
-        'size': '10',
-        ..._searchParams,
-      });
-      final dynamic list = res is Map ? res['data'] : null;
-      // if (!_userProvider.isLoggedIn && _currentPage == 2) {
-      //   setState(() {
-      //     isShowNoVip = true;
-      //     _isLoading = false;
-      //     _hasMore = false;
-      //   });
-      //   return;
-      // }
-      if (_userVip.containsKey('free') && _userVip['free'] && _currentPage != 1) {
-        // 没有会员
-        setState(() {
-          isShowNoVip = true;
-          _isLoading = false;
-          _hasMore = false;
-        });
-        return;
-      }
-      if (list != null) {
-        setState(() {
-          if (_currentPage == 1) {
-            _hotList = list;
-          } else {
-            _hotList.addAll(list);
-          }
-          _hasMore = list.length >= 10;
-          _currentPage++;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      print('Error loading data: $e');
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  void getAppVersionNum() async {
-    final res = await getAppVersion();
-    print('resresresresres${res}');
-  }
-
-  void _handleGoodsTypeChange(Map<String, dynamic> params) {
-    _searchParams = params;
-    _refresh();
-  }
-
-  void _handleTabChange(int index) async{
-    setState(() {
-      currentTabs.value = index;
-    });
-    await _refresh();
-    _scrollController.animateTo(
-      550.h, // 滚动到距离顶部 500px 的位置
-      duration: Duration(seconds: 1), // 动画时长
-      curve: Curves.easeInOut,       // 动画曲线
-    );
-  }
-
-  void _getVipInfo() async {
-    final res = await getUserVip();
-    setState(() {
-      _userVip = res as Map;
-      if (_userVip.containsKey('free') && !_userVip['free']) {
-        setState(() {
-          isShowNoVip = false;
-        });
-        return;
-      }
-    });
-  }
-
-  void _onOpenHotVideoPopup(goods) {
-    // if (!_userProvider.isLoggedIn) {
-    //   NativeBridge.openUserLogin();
-    //   return;
-    // }
-    _childKey.currentState?.showBottomSheet({
-      'search_str': goods['product_id_str'],
-    });
-  }
-
-  void _onGetRandomUrl() async {
-    TrackEvent.report('Home', 'Click', 'RandomSelect', '', '{}');
-    // if (!_userProvider.isLoggedIn) {
-    //   NativeBridge.openUserLogin();
-    //   return;
-    // }
-    final dynamic res = await getUrlRandom();
-    _onClipVideo(res['data']);
-  }
-
-  void _onSetClipboard() async {
-    final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
-    if (clipboardData != null && clipboardData.text != null) {
-      await Clipboard.setData(ClipboardData(text: ''));
-      // setState(() {
-      //   _searchController.text = clipboardData.text!;
-      // });
-    }
-  }
-
-  void nowButton() async {
-    getAppVersionNum();
-    TrackEvent.report('Home', 'Click', 'NowSelect', '', '{}');
-    _handleTabChange(0);
-  }
-
-  void _onClipVideo(text) async {
-    final res = await getParseUrlToId({
-      'url': text,
-    });
-    final dynamic data = res is Map ? res : null;
-    if (data['code'] != 0) {
-      Fluttertoast.showToast(
-        msg: data['errMsg'],
-        toastLength: Toast.LENGTH_SHORT,
-        gravity: ToastGravity.CENTER,
-        timeInSecForIosWeb: 1,
-        backgroundColor: Colors.black87,
-        textColor: Colors.white,
-        fontSize: 16.0
+      print('请求相机权限时发生错误: $e');
+      PermissionHelper.showPermissionSnackBar(
+        context, 
+        '权限请求失败: $e',
+        isError: true,
       );
-      return;
-    }
-    print('data: $data');
-    if (data['data']['product_id'] != '') {
-      _childKey.currentState?.showBottomSheet({
-        'search_str': data['data']['product_id'],
-      });
-    } else {
-      // showAnimatedDialog(context, text ?? '', data);
-      // NativeBridge.navigateToNativePage(
-      //   '${AppEnv.h5BaseUrl}/h5/kj/loading?is_navi=0&aweme_id=${data['data']['aweme_id']}&aweme_type=${data['data']['aweme_type']}&clipScene=VideoCut',
-      // );
+      return false;
     }
   }
-
-  void _onGetclipboardData() async {
-    final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
-    if (clipboardData != null && clipboardData.text != null) {
-      final res = await getParseUrlToId({
-        'url': clipboardData.text,
-      });
-      final dynamic data = res is Map ? res : null;
-      if (data['code'] != 0) {
-        return;
-      }
-      if (data['data']['product_id'] != '' || data['data']['aweme_id'] != '') {
-        showAnimatedDialog(context, clipboardData.text ?? '', data['data']);
-      }
-      await Clipboard.setData(const ClipboardData(text: ''));
-    } else {
-      showActivityDialog(context);
-    }
-  }
-
-  void showAnimatedDialog(BuildContext context, String url, Map<String, dynamic> data) {
-    showGeneralDialog(
+  
+  /// 显示权限说明对话框
+  Future<bool> _showPermissionExplanationDialog() async {
+    return await showDialog<bool>(
       context: context,
-      barrierDismissible: true,
-      barrierLabel: '',
-      transitionDuration: Duration(milliseconds: 300),
-      pageBuilder: (context, animation, secondaryAnimation) => Center(
-        child: ScaleTransition(
-          scale: CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOut,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.camera_alt, color: Colors.blue),
+              SizedBox(width: 8.w),
+              Text('需要相机权限'),
+            ],
           ),
-          child: Center(
-            child: Container(
-              width: 311.w,
-              // height: 250.h,
-              padding: EdgeInsets.only(left: 24.w, right: 24.w),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '为了使用拍照功能，需要您授权以下权限：',
+                style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.bold),
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.start,
-                children: [
-                  SizedBox(height: 24.h),
-                  Text('一键快剪同款视频', style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.w600, color: Color(0xFF111111), decoration: TextDecoration.none)),
-                  SizedBox(height: 8.h),
-                  Text('检测到您的剪贴板中的抖音链接${url}是否生成同款爆单视频', style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w400, color: Color(0xFF999999), decoration: TextDecoration.none)),
-                  SizedBox(height: 24),
-                  GestureDetector(
-                    onTap: () {
-                      // if (_userProvider.isLoggedIn) {
-                      //   if (data.containsKey('product_id') && data['product_id'] != '') {
-                      //     _childKey.currentState?.showBottomSheet({
-                      //       'search_str': data['product_id'],
-                      //     });
-                      //   } else {
-                      //     // NativeBridge.navigateToNativePage(
-                      //     //   '${AppEnv.h5BaseUrl}/h5/kj/loading?is_navi=0&aweme_id=${data['aweme_id']}&aweme_type=${data['aweme_type']}&clipScene=VideoCut',
-                      //     // );
-                      //   }
-                      // } else {
-                      //   // NativeBridge.openUserLogin();
-                      // }
-                    },
-                    child: Container(
-                      width: double.infinity,
-                      height: 46.h,
-                      decoration: BoxDecoration(
-                        color: Color(0xFF22262C),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Center(
-                        child: Text('一键快剪', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600, color: Color(0xFFA1F74A), decoration: TextDecoration.none))
-                      ),
-                    ),
-                  ),
-                  SizedBox(height: 8.h),
-                  GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                      width: double.infinity,
-                      height: 46.h,
-                      child: Center(
-                        child: Text('取消', style: TextStyle(fontSize: 16.sp, fontWeight: FontWeight.w600, color: Colors.black, decoration: TextDecoration.none)),
-                      ),
-                    ),
-                  ),
-                  SizedBox(height: 8.h),
-                ],
-              ),
-            ),
-          )
-        ),
-      ),
-    );
-  }
-
-  void showActivityDialog(BuildContext context) async {
-    // 检查是否已经显示过
-    bool hasShown = await StorageUtil.hasActivityDialogShown();
-    if (hasShown) {
-      return; // 如果已经显示过，直接返回
-    }
-    // 标记为已显示
-    await StorageUtil.markActivityDialogAsShown();
-
-    // 显示弹窗
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: '',
-      transitionDuration: Duration(milliseconds: 300),
-      pageBuilder: (context, animation, secondaryAnimation) => Center(
-        child: ScaleTransition(
-          scale: CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOut,
-          ),
-          child: Container(
-            width: 313,
-            height: 312,
-            decoration: BoxDecoration(
-              color: Colors.transparent,
-            ),
-            child: GestureDetector(
-              onTap: () async {
-                try {
-                  // if (_userProvider.isLoggedIn) {
-                  //   // await getTradeVipInit();
-                  //   Navigator.pop(context);
-                  // } else {
-                  //   // NativeBridge.openUserLogin();
-                  // }
-                } catch(e) {
-                  print(e);
-                }
-              },
-              child: Image.asset('asset/images/home/activity.png', width: double.infinity, fit: BoxFit.fitWidth),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-
-    return Scaffold(
-      // 这个属性对于让内容延伸到状态栏区域很重要
-      extendBodyBehindAppBar: true,
-      // 使用透明AppBar，高度为0
-      // appBar: PreferredSize(
-      //   preferredSize: Size.zero,
-      //   child: AppBar(
-      //     backgroundColor: Colors.transparent,
-      //   ),
-      // ),
-      body: GestureDetector(
-        onTap: () {
-          // 点击空白页面关闭键盘
-          FocusScope.of(context).requestFocus(blankNode);
-        },
-        child: Stack(
-          children: [
-            contextWidget(),
-            // 将HotVideoPopup作为overlay添加到Stack中
-            HotVideoPopup(key: _childKey, context: context),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget contextWidget() {
-    // 创建TabsSearch组件
-    final tabsSearch = TabsSearch(
-      onGoodsTypeChange: _handleGoodsTypeChange,
-      currentTabs: currentTabs,
-    );
-
-    return Stack(
-      children: [
-        // 背景图片置于底层
-        Positioned(
-          left: 0,
-          right: 0,
-          top: 0,
-          child: Image.asset(
-            'asset/images/home/背景.png',
-            width: MediaQuery.of(context).size.width,
-            fit: BoxFit.cover, // 确保图片覆盖整个区域
-            height: 120,
-          ),
-        ),
-        RefreshIndicator(
-          onRefresh: _refresh,
-          child: CustomScrollView(
-            controller: _scrollController,
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              SliverToBoxAdapter(
-                child: Container(
-                  // padding: EdgeInsets.only(top: 44), // 只添加状态栏高度的padding
-                  padding: EdgeInsets.only(top: MediaQuery.of(context).viewPadding.top + 12), // 只添加状态栏高度的padding
-                  width: double.infinity,
-                  child: Stack(
-                    // 将Column改为Stack以实现元素叠加
-                    children: [
-                      // 背景图片作为底层
-                      Image.asset(
-                        'asset/images/home/主卡-单行.png',
-                        fit: BoxFit.fitWidth,
-                        width: double.infinity,
-                      ),
-                      // 输入框和按钮叠加在背景图上
-                      Column(
-                        children: [
-                          SizedBox(height: 66.h),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              Container(
-                                width: 112.w,
-                                height: 34.h,
-                                padding: EdgeInsets.all(0),
-                                child: ElevatedButton(
-                                  onPressed: () => nowButton(),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Color(0xFF000000),
-                                    foregroundColor: Colors.white,
-                                    padding: EdgeInsets.all(0),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment: CrossAxisAlignment.center,
-                                    children: [
-                                      Center(
-                                        child: Row(
-                                          children: [
-                                            Image.asset(
-                                              'asset/images/home/sd.png',
-                                              fit: BoxFit.fitWidth,
-                                              width: 20,
-                                            ),
-                                            SizedBox(width: 4),
-                                            Text(
-                                              '立即选择',
-                                              style: TextStyle(
-                                                fontSize: 16.sp,
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              SizedBox(width: 28.w),
-                            ],
-                          ),
-                        ],
-                      ),
-                      Positioned(
-                        bottom: 12.h,
-                        left: 28.w,
-                        child: Container(
-                          child: Column(
-                            children: [
-                              GestureDetector(
-                                onTap: _onGetRandomUrl,
-                                child: Row(
-                                  children: [
-                                    Image.asset(
-                                      'asset/images/home/Shuffle.png',
-                                      fit: BoxFit.fitWidth,
-                                      width: 16,
-                                    ),
-                                    SizedBox(width: 4),
-                                    Text('随机爆款尝试', style: TextStyle(
-                                      color: Colors.black54,
-                                      fontSize: 12.sp,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              )
-                            ],
-                          ),
+              SizedBox(height: 12.h),
+              _buildPermissionItem(Icons.camera_alt, '相机权限', '用于拍照和实时预览'),
+              _buildPermissionItem(Icons.photo_library, '存储权限', '用于保存照片到相册'),
+              SizedBox(height: 16.h),
+              Container(
+                padding: EdgeInsets.all(12.w),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8.r),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.security, color: Colors.blue, size: 20.sp),
+                    SizedBox(width: 8.w),
+                    Expanded(
+                      child: Text(
+                        '我们严格保护您的隐私，不会上传或分享您的照片',
+                        style: TextStyle(
+                          fontSize: 12.sp,
+                          color: Colors.blue.shade700,
                         ),
-                      )
-                    ],
-                  ),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: Container(
-                  padding: const EdgeInsets.only(left: 12, right: 12, top: 8),
-                  child: ZoneAction(handleTabChange: _handleTabChange, onReset: getResetVip),
-                ),
-              ),
-              SliverPersistentHeader(
-                delegate: StickyTabsSearchDelegate(
-                  child: tabsSearch,
-                ),
-                pinned: true, // 设置为true使其固定在顶部
-              ),
-              SliverToBoxAdapter(
-                child: ValueListenableBuilder<int>(
-                  valueListenable: currentTabs,
-                  builder: (context, currentTab, child) {
-                    return Column(
-                      children: [
-                        if (currentTab == 0)
-                          HomeCardGoods(goodsList: _goodsList, onOpenHotVideo: _onOpenHotVideoPopup, searchParams: _searchParams),
-                        if (currentTab == 1)
-                          HomeCardVideo(videoList: _videoList),
-                        if (currentTab == 2)
-                          HomeCardHot(hotList: _hotList, searchParams: _searchParams),
-                        if (_isLoading)
-                          PageLoading(text: '加载中...'),
-                        if (!_hasMore)
-                          Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(16.0),
-                              child: Text('没有更多数据了', style: TextStyle(fontWeight: FontWeight.w400, color: Color(0xFF666666))),
-                            ),
-                          ),
-                      ],
-                    );
-                  },
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-        ),
-        if (isShowNoVip)
-          CxVipMore(),
-        if (isShowLogin)
-        Positioned(
-            bottom: 30.h,
-            left: 24.w,
-            right: 24.w,
-            child: Stack(
-              clipBehavior: Clip.none,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text('取消'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+              ),
+              child: Text('去设置', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    ) ?? false;
+  }
+  
+  /// 显示权限被永久拒绝的对话框
+  Future<bool> _showPermanentlyDeniedDialog() async {
+    return await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.warning, color: Colors.orange),
+              SizedBox(width: 8.w),
+              Text('权限被拒绝'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-                    child: Container(
-                      width: double.infinity,
-                      height: 48.h,
-                      padding: EdgeInsets.only(left: 16.w, right: 16.w),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Color(0xFFECFADA), width: 1),
-                        gradient: LinearGradient(
-                          begin: Alignment.topRight,
-                          end: Alignment.bottomLeft,
-                          colors: [
-                            Color.fromRGBO(241, 255, 223, 0.5),
-                            Color.fromRGBO(229, 250, 208, 0.5),
-                          ],
+                Text(
+                  '相机权限已被拒绝，需要手动开启',
+                  style: TextStyle(
+                    fontSize: 16.sp, 
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange.shade700,
+                  ),
+                ),
+                SizedBox(height: 16.h),
+                Text(
+                  '请按以下步骤开启相机权限：',
+                  style: TextStyle(fontSize: 14.sp, fontWeight: FontWeight.w500),
+                ),
+                SizedBox(height: 12.h),
+                _buildStepItem('1', '点击下方"去设置"按钮'),
+                _buildStepItem('2', '找到"相机"权限选项'),
+                _buildStepItem('3', '打开相机权限开关'),
+                _buildStepItem('4', '返回应用重新尝试'),
+                SizedBox(height: 16.h),
+                Container(
+                  padding: EdgeInsets.all(12.w),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(8.r),
+                    border: Border.all(color: Colors.orange.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.orange, size: 20.sp),
+                      SizedBox(width: 8.w),
+                      Expanded(
+                        child: Text(
+                          '如果找不到权限设置，可以尝试卸载后重新安装应用',
+                          style: TextStyle(
+                            fontSize: 12.sp,
+                            color: Colors.orange.shade700,
+                          ),
                         ),
                       ),
-                      child: GestureDetector(
-                        onTap: () {
-                          // NativeBridge.openUserLogin();
-                        },
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Row(
-                              children: [
-                                Image.network('https://cdn-static.chanmama.com/sub-module/static-file/4/3/f31ba37f19', width: 24.w, height: 24.h),
-                                SizedBox(width: 6.w),
-                                Text('请先登录快剪，解锁更多能力', style: TextStyle(color: Colors.black, fontSize: 11.sp, fontWeight: FontWeight.w600)),
-                              ],
-                            ),
-                            Container(
-                              height: 24.h,
-                              padding: EdgeInsets.only(left: 12.w, right: 12.w),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(40),
-                                color: Color(0xFFA1F74A),
-                              ),
-                              child: Center(
-                                child: Text('点击登录', style: TextStyle(color: Colors.black, fontSize: 12.sp, fontWeight: FontWeight.w600)),
-                              ),
-                            )
-                          ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text('取消'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.of(context).pop(true);
+                // 打开设置页面
+                bool opened = await openAppSettings();
+                if (opened) {
+                  // 给用户一些时间去设置
+                  await Future.delayed(Duration(seconds: 2));
+                  // 用户可能从设置页面返回，检查权限
+                  await _checkPermissionAfterSettings();
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+              ),
+              child: Text('去设置', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    ) ?? false;
+  }
+  
+  /// 用户从设置页面返回后检查权限
+  Future<void> _checkPermissionAfterSettings() async {
+    // 等待一段时间，让用户有时间在设置中修改权限
+    await Future.delayed(Duration(seconds: 1));
+    
+    // 重新检查所有权限状态
+    await _checkAllPermissions();
+    
+    bool hasPermission = await PermissionHelper.hasCameraPermission();
+    
+    if (hasPermission) {
+      PermissionHelper.showPermissionSnackBar(
+        context, 
+        '太棒了！相机权限已开启，现在可以正常使用拍照功能了！',
+        isError: false,
+      );
+    } else {
+      PermissionHelper.showPermissionSnackBar(
+        context, 
+        '相机权限仍未开启，请确保在设置中已打开相机权限',
+        isError: true,
+      );
+    }
+  }
+  
+  /// 构建步骤说明项
+  Widget _buildStepItem(String stepNumber, String description) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4.h),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 24.w,
+            height: 24.w,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.blue,
+            ),
+            child: Center(
+              child: Text(
+                stepNumber,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          SizedBox(width: 12.w),
+          Expanded(
+            child: Text(
+              description,
+              style: TextStyle(fontSize: 14.sp),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// 构建权限项目说明
+  Widget _buildPermissionItem(IconData icon, String title, String description) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 6.h),
+      child: Row(
+        children: [
+          Icon(icon, size: 20.sp, color: Colors.grey.shade600),
+          SizedBox(width: 12.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 14.sp,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                Text(
+                  description,
+                  style: TextStyle(
+                    fontSize: 12.sp,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 构建权限状态项
+  Widget _buildPermissionStatusItem(IconData icon, String title, bool isGranted) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4.h),
+      child: Row(
+        children: [
+          Icon(icon, size: 18.sp, color: Colors.grey.shade600),
+          SizedBox(width: 8.w),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 14.sp,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          Spacer(),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 2.h),
+            decoration: BoxDecoration(
+              color: isGranted ? Colors.green.shade100 : Colors.red.shade100,
+              borderRadius: BorderRadius.circular(12.r),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isGranted ? Icons.check : Icons.close,
+                  size: 12.sp,
+                  color: isGranted ? Colors.green.shade700 : Colors.red.shade700,
+                ),
+                SizedBox(width: 4.w),
+                Text(
+                  isGranted ? '已开启' : '未开启',
+                  style: TextStyle(
+                    fontSize: 12.sp,
+                    color: isGranted ? Colors.green.shade700 : Colors.red.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// 打开自定义拍照页面
+  Future<void> _openCustomCamera() async {
+    try {
+      print('用户点击了拍照按钮');
+      
+      // 显示加载指示器
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => Center(
+          child: Container(
+            padding: EdgeInsets.all(20.w),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(10.r),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16.h),
+                Text('正在检查权限...'),
+              ],
+            ),
+          ),
+        ),
+      );
+      
+      // 请求权限
+      // bool hasPermission = await _requestCameraPermission();
+      
+      // 关闭加载指示器
+      Navigator.of(context).pop();
+      //
+      // if (!hasPermission) {
+      //   PermissionHelper.showPermissionSnackBar(
+      //     context,
+      //     '无法获取相机权限，请在设置中手动开启权限',
+      //     isError: true,
+      //   );
+      //   // 更新权限状态显示
+      //   _checkAllPermissions();
+      //   return;
+      // }
+      
+      print('权限检查通过，准备打开相机页面');
+      
+      // 权限获取成功，更新状态
+      _checkAllPermissions();
+      
+      // 权限获取成功，跳转到拍照页面
+      final result = await Navigator.pushNamed(
+        context, 
+        RouteName.camera,
+      );
+      
+      // 处理拍照返回的结果
+      if (result != null && result.toString().isNotEmpty) {
+        print('拍照完成，图片路径: $result');
+        PermissionHelper.showPermissionSnackBar(
+          context, 
+          '拍照成功！照片已保存到相册',
+          isError: false,
+        );
+        
+        // 震动反馈
+        HapticFeedback.lightImpact();
+      } else {
+        print('用户取消了拍照或拍照失败');
+      }
+    } catch (e) {
+      print('打开相机时发生错误: $e');
+      
+      // 如果加载指示器还在显示，先关闭它
+      if (Navigator.canPop(context)) {
+        Navigator.of(context).pop();
+      }
+      
+      PermissionHelper.showPermissionSnackBar(
+        context, 
+        '打开相机失败: $e',
+        isError: true,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('首页'),
+        backgroundColor: Theme.of(context).primaryColor,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.bug_report),
+            onPressed: () => DebugHelper.showDebugDialog(context),
+            tooltip: '调试信息',
+          ),
+        ],
+      ),
+      body: Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(20.w),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // 拍照按钮
+            Container(
+              width: double.infinity,
+              height: 120.h,
+              margin: EdgeInsets.only(bottom: 30.h),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Colors.blue.shade400, Colors.blue.shade600],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(15.r),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.blue.withOpacity(0.3),
+                    offset: Offset(0, 5),
+                    blurRadius: 15,
+                  ),
+                ],
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(15.r),
+                  onTap: _openCustomCamera,
+                  child: Container(
+                    padding: EdgeInsets.all(20.w),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.camera_alt,
+                          size: 40.sp,
+                          color: Colors.white,
                         ),
-                      ),
+                        SizedBox(width: 15.w),
+                        Text(
+                          '自定义拍照',
+                          style: TextStyle(
+                            fontSize: 24.sp,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                // 将图片放在ClipRRect外部，作为Stack的直接子组件
-                Positioned(
-                  top: -4.h,
-                  right: -4.w,
-                  child: GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        isShowLogin = false;
-                      });
-                    },
-                    child: Image.network('https://cdn-static.chanmama.com/sub-module/static-file/3/f/23e036aa29', width: 16.w, height: 16.h),
+              ),
+            ),
+            SizedBox(height: 20.h),
+            // 功能说明
+            Container(
+              padding: EdgeInsets.all(20.w),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(12.r),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: Colors.blue,
+                        size: 20.sp,
+                      ),
+                      SizedBox(width: 8.w),
+                      Text(
+                        '拍照功能说明',
+                        style: TextStyle(
+                          fontSize: 16.sp,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
+                        ),
+                      ),
+                    ],
                   ),
-                )
-              ],
-            )
+                  SizedBox(height: 12.h),
+                  Text(
+                    '• 支持前后摄像头切换\n'
+                    '• 支持闪光灯控制\n'
+                    '• 支持缩放功能\n'
+                    '• 自动保存到相册\n'
+                    '• 实时预览和拍照',
+                    style: TextStyle(
+                      fontSize: 14.sp,
+                      color: Colors.grey.shade700,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            SizedBox(height: 20.h),
+          ],
         ),
-      ],
+      ),
     );
   }
 }

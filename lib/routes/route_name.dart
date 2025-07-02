@@ -23,4 +23,7 @@ class RouteName {
 
   /// 视频编辑预览页面
   static String editVideo = '/editVideo';
+
+  /// 自定义相机页面
+  static String camera = '/camera';
 }

@@ -42,17 +42,14 @@ dependencies:
   path_provider: ^2.1.2
   file_picker: ^6.1.1
   cupertino_icons: ^1.0.8
-  ffmpeg_kit_flutter:
-    path: ffmpeg_kit_flutter
-
   webview_flutter: ^4.4.2 # 使用最新稳定版本
   open_file: ^3.5.10 # 打开预览文件
   image_picker: ^1.1.2 # 图片选择(可选)
+  camera: ^0.10.6 # 自定义相机功能
   video_thumbnail: ^0.5.3  # 视频缩略图本地打包报错无法使用
   encrypt: ^5.0.3 # 加密工具包
   cached_network_image: ^3.3.0 # 网络图片缓存
   fl_chart: ^1.0.0
-  flutter_inappwebview: ^6.0.0
   tobias: ^5.1.2
   in_app_purchase: ^3.2.3
   intl: ^0.20.2 # 国际化和日期格式化

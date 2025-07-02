@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+<key>NSCameraUsageDescription</key>
+<string>$(PRODUCT_NAME) 需要访问相机以拍照</string>
 <key>NSPhotoLibraryUsageDescription</key>
 <string>$(PRODUCT_NAME) 需要访问您的相册以选择照片</string>
 <key>NSPhotoLibraryAddUsageDescription</key>
@@ -11,7 +13,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Flutter Flexible</string>
+	<string>FujiBoom</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

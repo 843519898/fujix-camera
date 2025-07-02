@@ -10,7 +10,7 @@ project 'Runner', {
   'Release' => :release,
 }
 
-platform :ios, '13.0'  # 或更高版本如 '13.0'
+platform :ios, '14.0'  # flutter_inappwebview 需要 iOS 14.0 或更高版本
 
 def flutter_root
   generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)

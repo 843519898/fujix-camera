@@ -11,6 +11,11 @@ Flutter 3.32.2 • channel stable
 Tools • Dart 3.8.1
 ```
 
+## 🔧 **系统要求**
+
+- iOS 14.0 或更高版本（因 flutter_inappwebview 插件需要）
+- Android minSdkVersion 19 或更高版本
+
 ## 内置集成功能
 
 • 动态环境构建打包，挂载在 app 内部全局参数中，如请求接口动态前缀 url，根据不同打包环境使用不同的接口域名。
@@ -26,6 +31,8 @@ Tools • Dart 3.8.1
 • 全局 context 对象，可在任意位置获取使用，例如在状态管理 provider 层内使用
 
 • OTA 更新 app 功能，内置一套 ui 界面，轻松配置 OTA 更新地址。
+
+• **自定义拍照功能**：集成 camera 插件，支持前后摄像头切换、闪光灯控制、手势缩放、自动保存到相册等完整拍照功能。
 
 PS：其它更多功能介绍往下拉查看 功能介绍区文档，或自行体验探索。
 
@@ -46,6 +53,7 @@ PS：其它更多功能介绍往下拉查看 功能介绍区文档，或自行�
   + [全局主题切换功能](#全局主题切换功能)
   + [全局路由监听](#全局路由监听)
   + [Provider状态管理](#Provider状态管理)
+  + [自定义拍照功能](#自定义拍照功能)
   + [build渠道标记](#build渠道标记)
 * [历史更新](CHANGELOG.md)
 
@@ -121,6 +129,17 @@ PS：安卓如果编译失败，请在android\local.properties更改minSdkVersio
 # 调整版本号到19以上，原flutter默认版本为16
 flutter.minSdkVersion=19
 ```
+
+### 🚨 **iOS 编译问题解决**
+
+如果遇到 iOS 模拟器崩溃，错误信息为 `Library not loaded: /usr/lib/swift/libswiftWebKit.dylib`：
+
+1. **原因分析**：flutter_inappwebview 插件需要 iOS 14.0+ 系统支持
+2. **解决方案**：项目已自动配置 iOS 14.0 为最低支持版本
+3. **验证方法**：检查以下文件中的版本设置
+   - `ios/Podfile`: `platform :ios, '14.0'`
+   - `ios/Flutter/AppFrameworkInfo.plist`: `MinimumOSVersion: 14.0`
+   - `ios/Runner.xcodeproj/project.pbxproj`: `IPHONEOS_DEPLOYMENT_TARGET = 14.0`
 
 ### 指令参数介绍
 
@@ -482,6 +501,110 @@ _theme.setTheme(themeBlueGrey); // 替换主题，注入主题配置即可
 
 ```dart
 import './lib/provider/global.p.dart';
+
+## 自定义拍照功能
+
+本项目集成了完整的自定义拍照功能，基于 `camera` 插件实现，提供专业级的拍照体验。
+
+### 功能特点
+
+• **前后摄像头切换**：支持前置和后置摄像头无缝切换
+• **闪光灯控制**：支持关闭、自动、常亮三种闪光灯模式
+• **手势缩放**：支持双指手势缩放相机画面
+• **滑动条缩放**：提供精确的滑动条缩放控制
+• **自动权限管理**：自动请求和处理相机权限
+• **自动保存相册**：拍照后自动保存到系统相册
+• **美观UI界面**：现代化的相机界面设计
+• **拍照动画效果**：流畅的拍照动画和震动反馈
+
+### 使用方法
+
+1、在首页点击"自定义拍照"按钮，系统会自动检查并请求相机权限
+
+2、进入拍照界面后，可以使用以下功能：
+   - 点击屏幕上方的闪光灯图标切换闪光灯模式
+   - 点击右下角的切换图标在前后摄像头间切换
+   - 使用双指手势或右侧滑动条进行缩放
+   - 点击中央拍照按钮进行拍照
+
+3、拍照成功后，照片会自动保存到系统相册，并显示成功提示
+
+### 权限配置
+
+项目已自动配置所需权限，无需手动添加：
+
+#### Android 权限（android/app/src/main/AndroidManifest.xml）
+```xml
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+```
+
+#### iOS 权限（ios/Runner/Info.plist）
+```xml
+<key>NSCameraUsageDescription</key>
+<string>此应用需要访问相机以拍照</string>
+<key>NSPhotoLibraryAddUsageDescription</key>
+<string>此应用需要访问相册以保存照片</string>
+```
+
+### 代码示例
+
+在任意页面调用拍照功能：
+
+```dart
+import 'package:permission_handler/permission_handler.dart';
+import '../../routes/route_name.dart';
+
+// 请求相机权限并打开拍照页面
+Future<void> openCamera() async {
+  // 检查权限
+  PermissionStatus status = await Permission.camera.request();
+  
+  if (status.isGranted) {
+    // 跳转到拍照页面
+    final result = await Navigator.pushNamed(context, RouteName.camera);
+    
+    if (result != null) {
+      print('拍照完成，图片路径: $result');
+    }
+  } else {
+    print('相机权限被拒绝');
+  }
+}
+```
+
+### 错误处理
+
+拍照功能包含完整的错误处理机制：
+
+• **权限拒绝处理**：引导用户到系统设置开启权限
+• **相机初始化失败**：提供重试按钮和错误提示
+• **拍照失败处理**：显示具体错误信息
+• **保存失败处理**：提示用户保存失败原因
+
+### 自定义配置
+
+可以通过修改 `lib/pages/camera/custom_camera.dart` 文件来自定义拍照功能：
+
+```dart
+// 修改拍照分辨率
+ResolutionPreset.high  // 可选：low, medium, high, veryHigh, ultraHigh
+
+// 修改默认闪光灯模式
+FlashMode _flashMode = FlashMode.off;  // 可选：off, auto, always
+
+// 修改缩放范围
+double _minZoomLevel = 1.0;
+double _maxZoomLevel = 8.0;
+```
+
+### 注意事项
+
+• 首次使用需要用户授权相机权限
+• iOS 14.0+ 系统支持，Android API 21+ 支持
+• 拍照功能需要真机测试，模拟器可能不支持
+• 建议在光线充足的环境下使用以获得最佳拍照效果
 GlobalStore globalStore = Provider.of<GlobalStore>(context);
 globalStore.setGrayTheme(true); // 设置灰度模式
 ```
