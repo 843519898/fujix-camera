@@ -1,0 +1,6 @@
+framework module tobias {
+  umbrella header "tobias-umbrella.h"
+
+  export *
+  module * { export * }
+}
